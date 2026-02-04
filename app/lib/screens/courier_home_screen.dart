@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../api/deliveries_api.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../models/delivery.dart';
 import '../storage/token_storage.dart';
 import 'login_screen.dart';
@@ -90,8 +90,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
 
   Future<void> _sendPhoto() async {
     final img = await _picker.pickImage(
-      source: ImageSource
-          .gallery, // para Chrome; no Android real trocamos pra camera
+      source: ImageSource.gallery,
       imageQuality: 75,
       maxWidth: 1280,
     );
@@ -104,9 +103,9 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
       await api.uploadDeliveryPhoto(img);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Entrega enviada!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Entrega enviada com sucesso!")),
+      );
 
       await _load();
     } on DioException catch (e) {
@@ -117,13 +116,17 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Erro ao enviar ($status): ${data ?? e.message}"),
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Erro: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erro: $e"),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -135,7 +138,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Entregador"),
+        title: const Text("Minhas Entregas"),
         actions: [
           IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
         ],
@@ -145,13 +148,13 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 110),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
                 children: [
-                  // HERO
+                  // HERO Section
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(20),
                       gradient: LinearGradient(
                         colors: [
                           cs.primary.withOpacity(0.18),
@@ -167,23 +170,31 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.calendar_month, color: cs.primary),
-                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: cs.surface,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.calendar_month, color: cs.primary),
+                        ),
+                        const SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Minha quinzena",
+                                "Resumo da Quinzena",
                                 style: TextStyle(
-                                  color: cs.onBackground.withOpacity(0.75),
+                                  color: cs.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                "$_fortnightTotal entregas",
+                                "$_fortnightTotal Entregas",
                                 style: const TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 24,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -193,118 +204,180 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 24),
 
                   Text(
-                    "Histórico",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: cs.onBackground,
+                    "Histórico Recente",
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
 
                   if (_items.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: Text("Nenhuma entrega ainda.")),
+                    Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Center(
+                        child: Text(
+                          "Nenhuma entrega registrada.",
+                          style: TextStyle(color: cs.onSurfaceVariant),
+                        ),
+                      ),
                     ),
 
                   ..._items.map((d) {
                     final color = _statusColor(d.status);
                     return Card(
-                      child: ListTile(
-                        title: Text(
-                          DateFormat("dd/MM/yyyy HH:mm").format(d.createdAt),
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: color.withOpacity(0.5),
-                                  ),
-                                ),
-                                child: Text(
-                                  _statusText(d.status),
-                                  style: TextStyle(
-                                    color: color,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              if (d.notes != null && d.notes!.isNotEmpty)
-                                Text(d.notes!),
-                            ],
-                          ),
-                        ),
-                        trailing: const Icon(Icons.image_outlined),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
                         onTap: () {
                           showDialog(
                             context: context,
                             builder: (_) => AlertDialog(
-                              title: const Text("Foto da entrega"),
-                              content: Image.network(
-                                "${AppConfig.baseUrl}${d.photoUrl}",
-                                fit: BoxFit.contain,
+                              contentPadding: EdgeInsets.zero,
+                              clipBehavior: Clip.antiAlias,
+                              content: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Image.network(
+                                    "${AppConfig.baseUrl}${d.photoUrl}",
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Padding(
+                                      padding: EdgeInsets.all(20),
+                                      child: Icon(Icons.broken_image),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text("Fechar"),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text("Fechar"),
-                                ),
-                              ],
                             ),
                           );
                         },
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHigh,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.local_shipping_outlined,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      DateFormat(
+                                        "dd/MM/yyyy • HH:mm",
+                                      ).format(d.createdAt),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    // Status Pill
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: color.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: color.withOpacity(0.3),
+                                          width: 0.5,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _statusText(d.status).toUpperCase(),
+                                        style: TextStyle(
+                                          color: color,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                    if (d.notes != null &&
+                                        d.notes!.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        "Nota: ${d.notes}",
+                                        style: TextStyle(
+                                          color: cs.onSurfaceVariant,
+                                          fontSize: 13,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.visibility_outlined,
+                                color: cs.outline,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     );
                   }),
                 ],
               ),
             ),
-
-      // Botão fixo (Uber-like)
       bottomSheet: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          border: Border(
-            top: BorderSide(
-              color: Theme.of(
-                context,
-              ).colorScheme.outlineVariant.withOpacity(0.6),
+          color: cs.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
             ),
+          ],
+          border: Border(
+            top: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
           ),
         ),
         child: SafeArea(
           top: false,
           child: SizedBox(
             width: double.infinity,
-            height: 52,
+            height: 56,
             child: FilledButton.icon(
               onPressed: _uploading ? null : _sendPhoto,
               icon: _uploading
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                  ? Container(
+                      width: 24,
+                      height: 24,
+                      padding: const EdgeInsets.all(2),
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
-                  : const Icon(Icons.camera_alt_outlined),
+                  : const Icon(Icons.camera_alt),
               label: Text(
-                _uploading ? "Enviando..." : "ENVIAR FOTO",
-                style: const TextStyle(fontWeight: FontWeight.w800),
+                _uploading ? "ENVIANDO..." : "NOVA ENTREGA",
+                style: const TextStyle(fontSize: 16),
               ),
             ),
           ),

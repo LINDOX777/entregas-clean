@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../api/deliveries_api.dart';
-import '../config.dart';
+import '../app_config.dart';
 import '../models/delivery.dart';
 
 class CourierDeliveriesScreen extends StatefulWidget {
@@ -65,11 +65,11 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
   String _statusText(String s) {
     switch (s) {
       case "approved":
-        return "Aprovada";
+        return "APROVADA";
       case "rejected":
-        return "Reprovada";
+        return "REPROVADA";
       default:
-        return "Pendente";
+        return "PENDENTE";
     }
   }
 
@@ -88,27 +88,30 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
 
   Future<void> _setStatus(DeliveryItem item, String status) async {
     final api = await DeliveriesApi.build();
-
     String? notes;
+
     if (status == "rejected") {
       notes = await showDialog<String>(
         context: context,
         builder: (_) {
           final c = TextEditingController();
           return AlertDialog(
-            title: const Text("Motivo da reprovação"),
+            title: const Text("Motivo da Reprovação"),
             content: TextField(
               controller: c,
-              decoration: const InputDecoration(hintText: "Ex: foto errada"),
+              decoration: const InputDecoration(
+                hintText: "Ex: Foto ilegível",
+                prefixIcon: Icon(Icons.note_alt_outlined),
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, null),
                 child: const Text("Cancelar"),
               ),
-              ElevatedButton(
+              FilledButton(
                 onPressed: () => Navigator.pop(context, c.text.trim()),
-                child: const Text("Salvar"),
+                child: const Text("Confirmar"),
               ),
             ],
           );
@@ -127,9 +130,24 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.courierName),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Entregas de", style: TextStyle(fontSize: 14)),
+            Text(
+              widget.courierName,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
         bottom: TabBar(
           controller: _tabs,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          indicatorSize: TabBarIndicatorSize.label,
+          dividerColor: Colors.transparent,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          unselectedLabelColor: cs.onSurfaceVariant,
           tabs: const [
             Tab(text: "Pendentes"),
             Tab(text: "Aprovadas"),
@@ -149,96 +167,165 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
                   onRefresh: _load,
                   child: list.isEmpty
                       ? ListView(
-                          children: const [
-                            SizedBox(height: 80),
-                            Center(child: Text("Nada por aqui.")),
+                          children: [
+                            SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.2,
+                            ),
+                            const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.inbox_outlined,
+                                    size: 48,
+                                    color: Colors.grey,
+                                  ),
+                                  SizedBox(height: 16),
+                                  Text("Nenhuma entrega nesta aba."),
+                                ],
+                              ),
+                            ),
                           ],
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(16),
                           itemCount: list.length,
                           itemBuilder: (_, i) {
                             final d = list[i];
                             final color = _statusColor(d.status);
 
                             return Card(
-                              child: ListTile(
-                                title: Text(
-                                  DateFormat(
-                                    "dd/MM/yyyy HH:mm",
-                                  ).format(d.createdAt),
-                                ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: color.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                          border: Border.all(
-                                            color: color.withOpacity(0.5),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          _statusText(d.status),
-                                          style: TextStyle(
-                                            color: color,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          DateFormat(
+                                            "dd/MM/yyyy • HH:mm",
+                                          ).format(d.createdAt),
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
-                                      ),
-                                      if (d.notes != null &&
-                                          d.notes!.isNotEmpty)
-                                        Text(
-                                          d.notes!,
-                                          style: TextStyle(
-                                            color: cs.onSurfaceVariant,
+                                        PopupMenuButton<String>(
+                                          icon: Icon(
+                                            Icons.more_horiz,
+                                            color: cs.outline,
                                           ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                trailing: PopupMenuButton<String>(
-                                  onSelected: (v) => _setStatus(d, v),
-                                  itemBuilder: (_) => const [
-                                    PopupMenuItem(
-                                      value: "approved",
-                                      child: Text("Aprovar"),
-                                    ),
-                                    PopupMenuItem(
-                                      value: "rejected",
-                                      child: Text("Reprovar"),
-                                    ),
-                                  ],
-                                ),
-                                onTap: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      title: const Text("Foto da entrega"),
-                                      content: Image.network(
-                                        "${AppConfig.baseUrl}${d.photoUrl}",
-                                        fit: BoxFit.contain,
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text("Fechar"),
+                                          onSelected: (v) => _setStatus(d, v),
+                                          itemBuilder: (_) => [
+                                            const PopupMenuItem(
+                                              value: "approved",
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.check_circle,
+                                                    color: Colors.green,
+                                                  ),
+                                                  SizedBox(width: 8),
+                                                  Text("Aprovar"),
+                                                ],
+                                              ),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: "rejected",
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.cancel,
+                                                    color: Colors.red,
+                                                  ),
+                                                  SizedBox(width: 8),
+                                                  Text("Reprovar"),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  );
-                                },
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: color.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: color.withOpacity(0.5),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            _statusText(d.status),
+                                            style: TextStyle(
+                                              color: color,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                contentPadding: EdgeInsets.zero,
+                                                clipBehavior: Clip.antiAlias,
+                                                content: Image.network(
+                                                  "${AppConfig.baseUrl}${d.photoUrl}",
+                                                  fit: BoxFit.contain,
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(context),
+                                                    child: const Text("Fechar"),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.photo,
+                                            size: 16,
+                                          ),
+                                          label: const Text("Ver Foto"),
+                                        ),
+                                      ],
+                                    ),
+                                    if (d.notes != null &&
+                                        d.notes!.isNotEmpty) ...[
+                                      const Divider(height: 24),
+                                      Text(
+                                        d.notes!,
+                                        style: TextStyle(
+                                          color: cs.error,
+                                          fontStyle: FontStyle.italic,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
                               ),
                             );
                           },

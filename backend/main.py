@@ -1,206 +1,233 @@
 import os
-from datetime import datetime, timedelta
-from typing import Optional, List
+import uuid
+from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from db import engine, Base, get_db
-from models import User, Delivery
+from database import engine, get_db
+from models import Base, User, Delivery
 from schemas import (
-    LoginRequest, LoginResponse,
-    DeliveryCreateResponse, DeliveryItem,
-    ApproveRequest, CreateCourierRequest, UserPublic
+    LoginRequest, TokenResponse, MeResponse,
+    CourierCreate, CompaniesUpdate, CourierOut,
+    DeliveryOut, ApproveRequest
 )
 from auth import (
-    verify_password,
-    create_access_token,
-    get_current_user,
-    require_admin,
-    hash_password,
+    hash_password, verify_password, create_access_token,
+    require_admin, require_courier, get_current_user
 )
+from constants import VALID_COMPANIES, VALID_STATUSES
 
-Base.metadata.create_all(bind=engine)
+# ---- APP
+app = FastAPI()
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-app = FastAPI(title="Entregas API", version="1.0.0")
-
+# CORS (para Flutter Web / testes)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # ok pra dev
+    allow_origins=["*"],   # em produção: colocar domínio certinho
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# uploads
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# cria tabelas (DEV)
+Base.metadata.create_all(bind=engine)
 
-@app.get("/health")
-def health():
-    return {"ok": True}
+# ---- HELPERS
+def delivery_to_out(d: Delivery) -> DeliveryOut:
+    return DeliveryOut(
+        id=d.id,
+        user_id=d.user_id,
+        created_at=d.created_at.isoformat(),
+        photo_url=d.photo_url,
+        status=d.status,
+        company=d.company,
+    )
 
-
-@app.post("/auth/login", response_model=LoginResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username).first()
-    if not user or not verify_password(body.password, user.password_hash):
+# ---- AUTH
+@app.post("/auth/login", response_model=TokenResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == payload.username).first()
+    if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
 
-    token = create_access_token(user_id=user.id, role=user.role)
-    return LoginResponse(access_token=token, role=user.role, name=user.name)
+    token = create_access_token(user)
 
-
-# ✅ ADMIN: listar entregadores (pra você escolher / ver quem existe)
-@app.get("/users/couriers", response_model=List[UserPublic])
-def list_couriers(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
-):
-    couriers = db.query(User).filter(User.role == "courier").order_by(User.name.asc()).all()
-    return couriers
-
-
-# ✅ ADMIN: criar entregador
-@app.post("/users/couriers", response_model=UserPublic)
-def create_courier(
-    body: CreateCourierRequest,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
-):
-    username = body.username.strip()
-    name = body.name.strip()
-
-    if len(username) < 3:
-        raise HTTPException(status_code=400, detail="username muito curto")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="senha deve ter pelo menos 6 caracteres")
-
-    exists = db.query(User).filter(User.username == username).first()
-    if exists:
-        raise HTTPException(status_code=409, detail="username já existe")
-
-    user = User(
-        name=name,
-        username=username,
-        password_hash=hash_password(body.password),
-        role="courier",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@app.post("/deliveries", response_model=DeliveryCreateResponse)
-def create_delivery(
-    photo: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    ext = os.path.splitext(photo.filename)[1].lower()
-    if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
-        raise HTTPException(status_code=400, detail="Formato inválido. Use jpg, png ou webp.")
-
-    filename = f"{user.id}_{int(datetime.utcnow().timestamp())}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-
-    with open(filepath, "wb") as f:
-        f.write(photo.file.read())
-
-    photo_url = f"/uploads/{filename}"
-
-    delivery = Delivery(
+    return TokenResponse(
+        access_token=token,
+        role=user.role,
         user_id=user.id,
-        created_at=datetime.utcnow(),
-        photo_url=photo_url,
-        status="pending",
-        notes=None,
+        name=user.name,
+        companies=user.get_companies() if user.role == "courier" else [],
     )
-    db.add(delivery)
+
+@app.get("/auth/me", response_model=MeResponse)
+def me(user: User = Depends(get_current_user)):
+    return MeResponse(
+        id=user.id,
+        name=user.name,
+        username=user.username,
+        role=user.role,
+        companies=user.get_companies() if user.role == "courier" else [],
+    )
+
+# ---- COURIERS (ADMIN)
+@app.get("/couriers", response_model=List[CourierOut])
+def list_couriers(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    users = db.query(User).filter(User.role == "courier").all()
+    return [
+        CourierOut(
+            id=u.id,
+            name=u.name,
+            username=u.username,
+            companies=u.get_companies(),
+        )
+        for u in users
+    ]
+
+@app.post("/couriers", response_model=CourierOut)
+def create_courier(payload: CourierCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    companies = [c.strip().upper() for c in payload.companies]
+    if any(c not in VALID_COMPANIES for c in companies):
+        raise HTTPException(400, detail="Empresa inválida")
+
+    exists = db.query(User).filter(User.username == payload.username).first()
+    if exists:
+        raise HTTPException(400, detail="Username já existe")
+
+    courier = User(
+        name=payload.name.strip(),
+        username=payload.username.strip(),
+        role="courier",
+        password_hash=hash_password(payload.password),
+    )
+    courier.set_companies(companies)
+
+    db.add(courier)
     db.commit()
-    db.refresh(delivery)
-    return delivery
+    db.refresh(courier)
 
+    return CourierOut(
+        id=courier.id,
+        name=courier.name,
+        username=courier.username,
+        companies=courier.get_companies(),
+    )
 
-@app.get("/deliveries", response_model=List[DeliveryItem])
-def list_deliveries(
-    from_date: Optional[str] = None,   # "YYYY-MM-DD"
-    to_date: Optional[str] = None,     # "YYYY-MM-DD"
-    courier_id: Optional[int] = None,  # admin pode filtrar por entregador
+@app.put("/couriers/{courier_id}/companies")
+def update_companies(courier_id: int, payload: CompaniesUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    courier = db.query(User).filter(User.id == courier_id, User.role == "courier").first()
+    if not courier:
+        raise HTTPException(404, detail="Entregador não encontrado")
+
+    companies = [c.strip().upper() for c in payload.companies]
+    if any(c not in VALID_COMPANIES for c in companies):
+        raise HTTPException(400, detail="Empresa inválida")
+
+    courier.set_companies(companies)
+    db.commit()
+    return {"ok": True}
+
+# ---- DELIVERIES (COURIER)
+@app.post("/deliveries/upload")
+def upload_delivery(
+    company: str = Form(...),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    courier: User = Depends(require_courier),
 ):
-    q = db.query(Delivery).join(User)
+    company = company.strip().upper()
+    if company not in VALID_COMPANIES:
+        raise HTTPException(400, detail="Empresa inválida")
 
-    if user.role != "admin":
-        q = q.filter(Delivery.user_id == user.id)
-    else:
-        if courier_id is not None:
-            q = q.filter(Delivery.user_id == courier_id)
+    if company not in courier.get_companies():
+        raise HTTPException(403, detail="Você não faz entregas dessa empresa")
 
-    def parse_date(d: str) -> datetime:
-        return datetime.strptime(d, "%Y-%m-%d")
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    safe_name = f"{uuid.uuid4().hex}{ext or '.jpg'}"
+    path = os.path.join(UPLOAD_DIR, safe_name)
 
-    if from_date:
-        q = q.filter(Delivery.created_at >= parse_date(from_date))
-    if to_date:
-        q = q.filter(Delivery.created_at < parse_date(to_date) + timedelta(days=1))
+    content = file.file.read()
+    with open(path, "wb") as f:
+        f.write(content)
+
+    d = Delivery(
+        user_id=courier.id,
+        company=company,
+        status="pending",
+        photo_url=f"/uploads/{safe_name}",
+    )
+    db.add(d)
+    db.commit()
+    db.refresh(d)
+
+    return {"ok": True, "delivery_id": d.id, "photo_url": d.photo_url}
+
+@app.get("/deliveries/me", response_model=List[DeliveryOut])
+def my_deliveries(
+    status: Optional[str] = None,
+    company: Optional[str] = None,
+    db: Session = Depends(get_db),
+    courier: User = Depends(require_courier),
+):
+    q = db.query(Delivery).filter(Delivery.user_id == courier.id)
+
+    if status:
+        if status not in VALID_STATUSES:
+            raise HTTPException(400, detail="Status inválido")
+        q = q.filter(Delivery.status == status)
+
+    if company:
+        company = company.upper()
+        q = q.filter(Delivery.company == company)
 
     q = q.order_by(Delivery.created_at.desc())
-    deliveries = q.all()
+    return [delivery_to_out(d) for d in q.all()]
 
-    for d in deliveries:
-        _ = d.user
-
-    return deliveries
-
-
-@app.patch("/deliveries/{delivery_id}/status", response_model=DeliveryCreateResponse)
-def set_delivery_status(
-    delivery_id: int,
-    body: ApproveRequest,
+# ---- DELIVERIES (ADMIN)
+@app.get("/deliveries/by-courier/{courier_id}", response_model=List[DeliveryOut])
+def deliveries_by_courier(
+    courier_id: int,
+    status: Optional[str] = None,
+    company: Optional[str] = None,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    if body.status not in ["approved", "rejected"]:
-        raise HTTPException(status_code=400, detail="status deve ser approved ou rejected")
+    q = db.query(Delivery).filter(Delivery.user_id == courier_id)
 
-    delivery = db.query(Delivery).filter(Delivery.id == delivery_id).first()
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega não encontrada")
+    if status:
+        if status not in VALID_STATUSES:
+            raise HTTPException(400, detail="Status inválido")
+        q = q.filter(Delivery.status == status)
 
-    delivery.status = body.status
-    delivery.notes = body.notes
-    db.commit()
-    db.refresh(delivery)
-    return delivery
+    if company:
+        company = company.upper()
+        q = q.filter(Delivery.company == company)
 
+    q = q.order_by(Delivery.created_at.desc())
+    return [delivery_to_out(d) for d in q.all()]
 
-@app.get("/stats/fortnight")
-def stats_fortnight(
-    start: str,  # "YYYY-MM-DD"
+@app.post("/deliveries/{delivery_id}/approve")
+def approve_delivery(
+    delivery_id: int,
+    payload: ApproveRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
 ):
-    start_dt = datetime.strptime(start, "%Y-%m-%d")
-    end_dt = start_dt + timedelta(days=14, hours=23, minutes=59, seconds=59)
+    if payload.status not in ["approved", "rejected"]:
+        raise HTTPException(400, detail="Status inválido")
 
-    q = db.query(Delivery).filter(Delivery.created_at >= start_dt, Delivery.created_at <= end_dt)
+    d = db.query(Delivery).filter(Delivery.id == delivery_id).first()
+    if not d:
+        raise HTTPException(404, detail="Entrega não encontrada")
 
-    if user.role != "admin":
-        q = q.filter(Delivery.user_id == user.id)
-
-    deliveries = q.all()
-    total = len(deliveries)
-
-    by_day = {}
-    for d in deliveries:
-        key = d.created_at.strftime("%Y-%m-%d")
-        by_day[key] = by_day.get(key, 0) + 1
-
-    return {"start": start, "end": end_dt.strftime("%Y-%m-%d"), "total": total, "by_day": by_day}
+    d.status = payload.status
+    db.commit()
+    return {"ok": True}

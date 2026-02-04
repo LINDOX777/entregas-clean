@@ -1,29 +1,32 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TokenStorage {
-  static const _storage = FlutterSecureStorage();
+  static const _tokenKey = 'access_token';
+  static const _roleKey = 'role';
 
-  static const _keyToken = "access_token";
-  static const _keyRole = "role";
-  static const _keyName = "name";
-
-  static Future<void> saveSession({
-    required String token,
-    required String role,
-    required String name,
-  }) async {
-    await _storage.write(key: _keyToken, value: token);
-    await _storage.write(key: _keyRole, value: role);
-    await _storage.write(key: _keyName, value: name);
+  static Future<void> saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenKey, token);
   }
 
-  static Future<String?> getToken() async => _storage.read(key: _keyToken);
-  static Future<String?> getRole() async => _storage.read(key: _keyRole);
-  static Future<String?> getName() async => _storage.read(key: _keyName);
+  static Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_tokenKey);
+  }
+
+  static Future<void> saveRole(String role) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_roleKey, role);
+  }
+
+  static Future<String?> getRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_roleKey);
+  }
 
   static Future<void> clear() async {
-    await _storage.delete(key: _keyToken);
-    await _storage.delete(key: _keyRole);
-    await _storage.delete(key: _keyName);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_roleKey);
   }
 }

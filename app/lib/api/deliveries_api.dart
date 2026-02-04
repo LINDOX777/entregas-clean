@@ -41,19 +41,31 @@ class DeliveriesApi {
     return Map<String, dynamic>.from(res.data);
   }
 
-  /// ✅ Agora funciona no Web (Chrome) e no Mobile (Android/iOS)
-  Future<void> uploadDeliveryPhoto(XFile file) async {
+  /// ✅ Upload alinhado com o Swagger:
+  /// POST /deliveries/upload
+  /// multipart/form-data: company (string) + file (binary)
+  ///
+  /// Funciona no Web (Chrome) e no Mobile (Android/iOS)
+  Future<void> uploadDelivery({
+    required String company, // ex: "jadlog", "jet", "ml"
+    required XFile file,
+  }) async {
     MultipartFile mf;
 
     if (kIsWeb) {
       final bytes = await file.readAsBytes();
       mf = MultipartFile.fromBytes(bytes, filename: file.name);
     } else {
-      mf = await MultipartFile.fromFile(file.path);
+      mf = await MultipartFile.fromFile(file.path, filename: file.name);
     }
 
-    final formData = FormData.fromMap({"photo": mf});
-    await _dio.post("/deliveries", data: formData);
+    final formData = FormData.fromMap({"company": company, "file": mf});
+
+    await _dio.post(
+      "/deliveries/upload",
+      data: formData,
+      options: Options(contentType: "multipart/form-data"),
+    );
   }
 
   Future<void> setStatus({

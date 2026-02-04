@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../api/auth_api.dart';
-import '../storage/token_storage.dart';
 import 'admin_home_screen.dart';
 import 'courier_home_screen.dart';
 
@@ -27,13 +26,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final api = await AuthApi.build();
-      final res = await api.login(_username.text.trim(), _password.text);
 
-      final token = res["access_token"] as String;
-      final role = res["role"] as String;
-      final name = res["name"] as String;
+      // ✅ FIX: login agora é named params
+      final res = await api.login(
+        username: _username.text.trim(),
+        password: _password.text,
+      );
 
-      await TokenStorage.saveSession(token: token, role: role, name: name);
+      // ✅ Token/role já são salvos dentro do AuthApi.login (no padrão novo)
+      final role = (res["role"] ?? "").toString();
 
       if (!mounted) return;
 
@@ -48,9 +49,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final status = e.response?.statusCode;
       setState(() {
         if (status == 401) {
-          _error = "Usuário ou senha inválidos.";
+          _error = "Credenciais incorretas. Verifique usuário e senha.";
         } else {
-          _error = "Erro ao conectar no servidor: ${e.message}";
+          _error = "Falha na conexão: ${e.message}";
         }
       });
     } catch (e) {
@@ -78,37 +79,66 @@ class _LoginScreenState extends State<LoginScreen> {
             final wide = c.maxWidth > 700;
 
             final content = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 10),
                 Text(
-                  "Entregas",
+                  "Bem-vindo",
                   style: TextStyle(
                     fontSize: 34,
                     fontWeight: FontWeight.w800,
-                    color: cs.onBackground,
+                    letterSpacing: -0.6,
+                    color: cs.onSurface,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  "Entre para registrar e aprovar entregas.",
+                  "Faça login para continuar",
                   style: TextStyle(
-                    fontSize: 16,
-                    color: cs.onBackground.withOpacity(0.7),
+                    fontSize: 14,
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 26),
+                const SizedBox(height: 20),
+
+                if (_error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.errorContainer,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline, color: cs.onErrorContainer),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: TextStyle(
+                              color: cs.onErrorContainer,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
                 TextField(
                   controller: _username,
                   decoration: const InputDecoration(
                     labelText: "Usuário",
-                    prefixIcon: Icon(Icons.person_outline),
+                    prefixIcon: Icon(Icons.alternate_email),
                   ),
+                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _password,
-                  obscureText: _obscure,
                   decoration: InputDecoration(
                     labelText: "Senha",
                     prefixIcon: const Icon(Icons.lock_outline),
@@ -119,45 +149,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                  obscureText: _obscure,
+                  onSubmitted: (_) => _loading ? null : _doLogin(),
                 ),
-                const SizedBox(height: 14),
-                if (_error != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.red.withOpacity(0.35)),
-                    ),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
+
                 SizedBox(
-                  width: double.infinity,
                   height: 52,
                   child: FilledButton(
                     onPressed: _loading ? null : _doLogin,
                     child: _loading
                         ? const SizedBox(
-                            height: 18,
                             width: 18,
+                            height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text(
-                            "ENTRAR",
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
+                        : const Text("Entrar"),
                   ),
                 ),
-                const SizedBox(height: 12),
-                //Text(
-                //"Dica: admin/admin123 — entregador/123456",
-                //style: TextStyle(color: cs.onBackground.withOpacity(0.6)),
-                //),
+                const SizedBox(height: 16),
               ],
             );
 
@@ -165,64 +175,81 @@ class _LoginScreenState extends State<LoginScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 980),
                 child: Padding(
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.all(20),
                   child: wide
                       ? Row(
                           children: [
                             Expanded(
                               child: Container(
-                                padding: const EdgeInsets.all(18),
+                                height: 520,
                                 decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(28),
                                   gradient: LinearGradient(
-                                    colors: [
-                                      cs.primary.withOpacity(0.22),
-                                      cs.secondary.withOpacity(0.14),
-                                      Colors.transparent,
-                                    ],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
+                                    colors: [
+                                      cs.primary.withOpacity(0.16),
+                                      cs.tertiary.withOpacity(0.12),
+                                      cs.surface.withOpacity(0.0),
+                                    ],
                                   ),
-                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: cs.outlineVariant.withOpacity(0.4),
+                                  ),
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(
-                                      Icons.local_shipping_outlined,
-                                      size: 42,
-                                      color: cs.primary,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      "Controle de entregas\nsimples e rápido.",
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w800,
-                                        color: cs.onBackground,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      "• Entregador envia foto\n• Admin aprova/reprova\n• Totais por quinzena",
-                                      style: TextStyle(
-                                        color: cs.onBackground.withOpacity(
-                                          0.75,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(26),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: cs.primaryContainer,
                                         ),
-                                        height: 1.35,
+                                        child: Icon(
+                                          Icons.local_shipping,
+                                          color: cs.onPrimaryContainer,
+                                          size: 28,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(height: 18),
+                                      Text(
+                                        "Entregas Clean",
+                                        style: TextStyle(
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.6,
+                                          color: cs.onSurface,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        "Controle as entregas de forma rápida e fácil",
+                                        style: TextStyle(
+                                          color: cs.onSurfaceVariant,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        "",
+                                        style: TextStyle(
+                                          color: cs.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 18),
                             Expanded(
                               child: Card(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(22),
-                                ),
                                 child: Padding(
-                                  padding: const EdgeInsets.all(18),
+                                  padding: const EdgeInsets.all(22),
                                   child: content,
                                 ),
                               ),
@@ -230,11 +257,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         )
                       : Card(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(22),
-                          ),
                           child: Padding(
-                            padding: const EdgeInsets.all(18),
+                            padding: const EdgeInsets.all(22),
                             child: content,
                           ),
                         ),

@@ -1,59 +1,47 @@
 from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional, List
-
+from typing import List, Optional
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
-
-class LoginResponse(BaseModel):
+class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
+    user_id: int
     name: str
+    companies: List[str] = []
 
-
-class UserPublic(BaseModel):
+class MeResponse(BaseModel):
     id: int
     name: str
     username: str
     role: str
+    companies: List[str] = []
 
-    class Config:
-        from_attributes = True
-
-
-class CreateCourierRequest(BaseModel):
+class CourierCreate(BaseModel):
     name: str
     username: str
     password: str
+    companies: List[str]
 
+class CompaniesUpdate(BaseModel):
+    companies: List[str]
 
-class DeliveryCreateResponse(BaseModel):
+class CourierOut(BaseModel):
     id: int
-    created_at: datetime
+    name: str
+    username: str
+    companies: List[str]
+
+class DeliveryOut(BaseModel):
+    id: int
+    user_id: int
+    created_at: str
     photo_url: str
     status: str
-    notes: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-class DeliveryItem(BaseModel):
-    id: int
-    created_at: datetime
-    photo_url: str
-    status: str
-    notes: Optional[str] = None
-    user: UserPublic
-
-    class Config:
-        from_attributes = True
-
+    company: str
 
 class ApproveRequest(BaseModel):
-    status: str  # "approved" ou "rejected"
-    notes: Optional[str] = None
+    status: str  # "approved" | "rejected"

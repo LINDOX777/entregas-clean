@@ -1,4 +1,3 @@
-class AppConfig {
-  // Flutter Web (Chrome)
-  static const String baseUrl = "http://localhost:8000";
+class Config {
+  static const String baseUrl = 'http://localhost:8000';
 }

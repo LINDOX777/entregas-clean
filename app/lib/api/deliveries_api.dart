@@ -19,6 +19,7 @@ class DeliveriesApi {
     String? fromDate,
     String? toDate,
     int? courierId,
+    String? company,
   }) async {
     final res = await _dio.get(
       "/deliveries",
@@ -26,6 +27,7 @@ class DeliveriesApi {
         if (fromDate != null) "from_date": fromDate,
         if (toDate != null) "to_date": toDate,
         if (courierId != null) "courier_id": courierId,
+        if (company != null) "company": company,
       },
     );
 
@@ -33,16 +35,25 @@ class DeliveriesApi {
     return data.map((e) => DeliveryItem.fromJson(e)).toList();
   }
 
-  Future<Map<String, dynamic>> statsFortnight({required String start}) async {
+  Future<Map<String, dynamic>> statsFortnight({
+    required String start,
+    String? company,
+  }) async {
     final res = await _dio.get(
       "/stats/fortnight",
-      queryParameters: {"start": start},
+      queryParameters: {
+        "start": start,
+        if (company != null) "company": company,
+      },
     );
     return Map<String, dynamic>.from(res.data);
   }
 
   /// ✅ Agora funciona no Web (Chrome) e no Mobile (Android/iOS)
-  Future<void> uploadDeliveryPhoto(XFile file) async {
+  Future<void> uploadDeliveryPhoto({
+    required XFile file,
+    required String company,
+  }) async {
     MultipartFile mf;
 
     if (kIsWeb) {
@@ -52,7 +63,10 @@ class DeliveriesApi {
       mf = await MultipartFile.fromFile(file.path);
     }
 
-    final formData = FormData.fromMap({"photo": mf});
+    final formData = FormData.fromMap({
+      "photo": mf,
+      "company": company,
+    });
     await _dio.post("/deliveries", data: formData);
   }
 

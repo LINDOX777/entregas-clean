@@ -47,41 +47,67 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final nameC = TextEditingController();
     final userC = TextEditingController();
     final passC = TextEditingController();
+    final selectedCompanies = <String>[];
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Cadastrar entregador"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameC,
-              decoration: const InputDecoration(labelText: "Nome"),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Cadastrar entregador"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameC,
+                  decoration: const InputDecoration(labelText: "Nome"),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: userC,
+                  decoration: const InputDecoration(labelText: "Usuário"),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: passC,
+                  decoration: const InputDecoration(labelText: "Senha (mín. 6)"),
+                  obscureText: true,
+                ),
+                const SizedBox(height: 16),
+                const Text("Empresas:", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...["jet", "jadlog", "mercado_livre"].map((company) {
+                  return CheckboxListTile(
+                    title: Text(_formatCompanyName(company)),
+                    value: selectedCompanies.contains(company),
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true) {
+                          selectedCompanies.add(company);
+                        } else {
+                          selectedCompanies.remove(company);
+                        }
+                      });
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  );
+                }),
+              ],
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: userC,
-              decoration: const InputDecoration(labelText: "Usuário"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancelar"),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: passC,
-              decoration: const InputDecoration(labelText: "Senha (mín. 6)"),
-              obscureText: true,
+            ElevatedButton(
+              onPressed: selectedCompanies.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text("Criar"),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancelar"),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Criar"),
-          ),
-        ],
       ),
     );
 
@@ -93,20 +119,107 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         name: nameC.text.trim(),
         username: userC.text.trim(),
         password: passC.text.trim(),
+        companies: selectedCompanies,
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Entregador criado!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Entregador criado!")),
+      );
       await _load();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Erro ao criar entregador (usuário pode já existir)."),
+        SnackBar(
+          content: Text("Erro: ${e.toString()}"),
         ),
       );
+    }
+  }
+
+  Future<void> _editCompaniesDialog(int courierId, List<String> currentCompanies) async {
+    final selectedCompanies = List<String>.from(currentCompanies);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text("Editar empresas"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Selecione as empresas:", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...["jet", "jadlog", "mercado_livre"].map((company) {
+                  return CheckboxListTile(
+                    title: Text(_formatCompanyName(company)),
+                    value: selectedCompanies.contains(company),
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true) {
+                          selectedCompanies.add(company);
+                        } else {
+                          selectedCompanies.remove(company);
+                        }
+                      });
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  );
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancelar"),
+            ),
+            ElevatedButton(
+              onPressed: selectedCompanies.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text("Salvar"),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      final api = await AuthApi.build();
+      await api.updateCourierCompanies(
+        courierId: courierId,
+        companies: selectedCompanies,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Empresas atualizadas!")),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erro: ${e.toString()}"),
+        ),
+      );
+    }
+  }
+
+  String _formatCompanyName(String code) {
+    switch (code) {
+      case "jet":
+        return "JeT";
+      case "jadlog":
+        return "Jadlog";
+      case "mercado_livre":
+        return "Mercado Livre";
+      default:
+        return code;
     }
   }
 
@@ -149,13 +262,43 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         final id = c["id"] as int;
                         final name = (c["name"] ?? "") as String;
                         final username = (c["username"] ?? "") as String;
+                        final companies = List<String>.from(c["companies"] ?? []);
 
                         return Card(
                           child: ListTile(
                             leading: CircleAvatar(child: Text(_initial(name))),
                             title: Text(name),
-                            subtitle: Text("@$username"),
-                            trailing: const Icon(Icons.chevron_right),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("@$username"),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 4,
+                                  children: companies.map((c) {
+                                    return Chip(
+                                      label: Text(
+                                        _formatCompanyName(c),
+                                        style: const TextStyle(fontSize: 10),
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit, size: 20),
+                                  onPressed: () => _editCompaniesDialog(id, companies),
+                                  tooltip: "Editar empresas",
+                                ),
+                                const Icon(Icons.chevron_right),
+                              ],
+                            ),
                             onTap: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(

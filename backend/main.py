@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -12,7 +12,8 @@ from models import User, Delivery
 from schemas import (
     LoginRequest, LoginResponse,
     DeliveryCreateResponse, DeliveryItem,
-    ApproveRequest, CreateCourierRequest, UserPublic
+    ApproveRequest, CreateCourierRequest, UserPublic,
+    UpdateCourierCompaniesRequest
 )
 from auth import (
     verify_password,
@@ -28,6 +29,10 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Entregas API", version="1.0.0")
+
+@app.get("/teste-vida")
+def teste_vida():
+    return {"status": "Estou vivo e atualizado!"}
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,7 +57,13 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
 
     token = create_access_token(user_id=user.id, role=user.role)
-    return LoginResponse(access_token=token, role=user.role, name=user.name)
+    companies = user.companies or [] if user.role == "courier" else []
+    return LoginResponse(
+        access_token=token,
+        role=user.role,
+        name=user.name,
+        companies=companies
+    )
 
 
 # ✅ ADMIN: listar entregadores (pra você escolher / ver quem existe)
@@ -63,6 +74,32 @@ def list_couriers(
 ):
     couriers = db.query(User).filter(User.role == "courier").order_by(User.name.asc()).all()
     return couriers
+
+
+# ✅ ADMIN: atualizar empresas do entregador
+@app.patch("/users/couriers/{courier_id}/companies", response_model=UserPublic)
+def update_courier_companies(
+    courier_id: int,
+    body: UpdateCourierCompaniesRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    courier = db.query(User).filter(User.id == courier_id, User.role == "courier").first()
+    if not courier:
+        raise HTTPException(status_code=404, detail="Entregador não encontrado")
+    
+    # Validar empresas
+    valid_companies = ["jet", "jadlog", "mercado_livre"]
+    companies = [c.lower().strip() for c in body.companies]
+    companies = [c for c in companies if c in valid_companies]
+    
+    if not companies:
+        raise HTTPException(status_code=400, detail="Selecione pelo menos uma empresa")
+    
+    courier.companies = companies
+    db.commit()
+    db.refresh(courier)
+    return courier
 
 
 # ✅ ADMIN: criar entregador
@@ -84,11 +121,20 @@ def create_courier(
     if exists:
         raise HTTPException(status_code=409, detail="username já existe")
 
+    # Validar empresas
+    valid_companies = ["jet", "jadlog", "mercado_livre"]
+    companies = [c.lower().strip() for c in body.companies]
+    companies = [c for c in companies if c in valid_companies]
+    
+    if not companies:
+        raise HTTPException(status_code=400, detail="Selecione pelo menos uma empresa")
+
     user = User(
         name=name,
         username=username,
         password_hash=hash_password(body.password),
         role="courier",
+        companies=companies,
     )
     db.add(user)
     db.commit()
@@ -99,9 +145,22 @@ def create_courier(
 @app.post("/deliveries", response_model=DeliveryCreateResponse)
 def create_delivery(
     photo: UploadFile = File(...),
+    company: str = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Validar empresa
+    valid_companies = ["jet", "jadlog", "mercado_livre"]
+    company_lower = company.lower().strip()
+    if company_lower not in valid_companies:
+        raise HTTPException(status_code=400, detail="Empresa inválida")
+    
+    # Verificar se entregador trabalha com essa empresa
+    if user.role == "courier":
+        user_companies = user.companies or []
+        if company_lower not in user_companies:
+            raise HTTPException(status_code=403, detail="Você não trabalha com esta empresa")
+
     ext = os.path.splitext(photo.filename)[1].lower()
     if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
         raise HTTPException(status_code=400, detail="Formato inválido. Use jpg, png ou webp.")
@@ -118,6 +177,7 @@ def create_delivery(
         user_id=user.id,
         created_at=datetime.utcnow(),
         photo_url=photo_url,
+        company=company_lower,
         status="pending",
         notes=None,
     )
@@ -132,6 +192,7 @@ def list_deliveries(
     from_date: Optional[str] = None,   # "YYYY-MM-DD"
     to_date: Optional[str] = None,     # "YYYY-MM-DD"
     courier_id: Optional[int] = None,  # admin pode filtrar por entregador
+    company: Optional[str] = None,     # filtrar por empresa: "jet", "jadlog", "mercado_livre"
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -142,6 +203,13 @@ def list_deliveries(
     else:
         if courier_id is not None:
             q = q.filter(Delivery.user_id == courier_id)
+
+    # Filtro por empresa
+    if company:
+        company_lower = company.lower().strip()
+        valid_companies = ["jet", "jadlog", "mercado_livre"]
+        if company_lower in valid_companies:
+            q = q.filter(Delivery.company == company_lower)
 
     def parse_date(d: str) -> datetime:
         return datetime.strptime(d, "%Y-%m-%d")
@@ -184,6 +252,7 @@ def set_delivery_status(
 @app.get("/stats/fortnight")
 def stats_fortnight(
     start: str,  # "YYYY-MM-DD"
+    company: Optional[str] = None,  # filtrar por empresa
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -194,6 +263,13 @@ def stats_fortnight(
 
     if user.role != "admin":
         q = q.filter(Delivery.user_id == user.id)
+    
+    # Filtro por empresa
+    if company:
+        company_lower = company.lower().strip()
+        valid_companies = ["jet", "jadlog", "mercado_livre"]
+        if company_lower in valid_companies:
+            q = q.filter(Delivery.company == company_lower)
 
     deliveries = q.all()
     total = len(deliveries)

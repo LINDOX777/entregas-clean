@@ -24,6 +24,8 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     with TickerProviderStateMixin {
   bool _loading = true;
   List<DeliveryItem> _items = [];
+  List<DeliveryItem> _allItems = [];
+  String? _selectedCompanyFilter;
   late final TabController _tabs;
 
   @override
@@ -43,12 +45,37 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     setState(() => _loading = true);
     try {
       final api = await DeliveriesApi.build();
-      final list = await api.listDeliveries(courierId: widget.courierId);
+      final list = await api.listDeliveries(
+        courierId: widget.courierId,
+        company: _selectedCompanyFilter,
+      );
       if (!mounted) return;
-      setState(() => _items = list);
+      setState(() {
+        _allItems = list;
+        _items = list;
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _formatCompanyName(String code) {
+    switch (code) {
+      case "jet":
+        return "JeT";
+      case "jadlog":
+        return "Jadlog";
+      case "mercado_livre":
+        return "Mercado Livre";
+      default:
+        return code;
+    }
+  }
+
+  List<String> _getAvailableCompanies() {
+    final companies = _allItems.map((e) => e.company).toSet().toList();
+    companies.sort();
+    return companies;
   }
 
   Color _statusColor(String s) {
@@ -74,16 +101,24 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
   }
 
   List<DeliveryItem> _filteredByTab(int index) {
+    List<DeliveryItem> filtered = _items;
+    
+    // Filtro por status
     switch (index) {
       case 0:
-        return _items.where((e) => e.status == "pending").toList();
+        filtered = filtered.where((e) => e.status == "pending").toList();
+        break;
       case 1:
-        return _items.where((e) => e.status == "approved").toList();
+        filtered = filtered.where((e) => e.status == "approved").toList();
+        break;
       case 2:
-        return _items.where((e) => e.status == "rejected").toList();
+        filtered = filtered.where((e) => e.status == "rejected").toList();
+        break;
       default:
-        return _items;
+        break;
     }
+    
+    return filtered;
   }
 
   Future<void> _setStatus(DeliveryItem item, String status) async {
@@ -138,6 +173,43 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
           ],
         ),
       ),
+      persistentFooterButtons: _getAvailableCompanies().isEmpty
+          ? null
+          : [
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: const Text("Todas"),
+                      selected: _selectedCompanyFilter == null,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedCompanyFilter = null;
+                        });
+                        _load();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    ..._getAvailableCompanies().map((company) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(_formatCompanyName(company)),
+                          selected: _selectedCompanyFilter == company,
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCompanyFilter = selected ? company : null;
+                            });
+                            _load();
+                          },
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
@@ -174,6 +246,14 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: [
+                                      Chip(
+                                        label: Text(
+                                          _formatCompanyName(d.company),
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 10,

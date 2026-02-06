@@ -3,12 +3,14 @@ class UserPublic {
   final String name;
   final String username;
   final String role;
+  final List<String> companies;
 
   UserPublic({
     required this.id,
     required this.name,
     required this.username,
     required this.role,
+    this.companies = const [],
   });
 
   factory UserPublic.fromJson(Map<String, dynamic> json) {
@@ -17,6 +19,7 @@ class UserPublic {
       name: json["name"],
       username: json["username"],
       role: json["role"],
+      companies: List<String>.from(json["companies"] ?? []),
     );
   }
 }

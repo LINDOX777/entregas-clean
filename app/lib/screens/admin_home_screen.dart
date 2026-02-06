@@ -49,109 +49,40 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final userC = TextEditingController();
     final passC = TextEditingController();
 
-    // Seleção de empresas que o entregador faz
-    final selected = <String>{};
-
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: const Text("Novo Entregador"),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameC,
-                  decoration: const InputDecoration(
-                    labelText: "Nome completo",
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: userC,
-                  decoration: const InputDecoration(
-                    labelText: "Nome de usuário",
-                    prefixIcon: Icon(Icons.alternate_email),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passC,
-                  decoration: const InputDecoration(
-                    labelText: "Senha (mín. 6)",
-                    prefixIcon: Icon(Icons.lock_outline),
-                  ),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Empresas que ele faz",
-                    style: Theme.of(ctx).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: kCourierCompanies.entries.map((e) {
-                    final isOn = selected.contains(e.key);
-                    return FilterChip(
-                      selected: isOn,
-                      label: Text(e.value),
-                      onSelected: (v) {
-                        setLocal(() {
-                          if (v) {
-                            selected.add(e.key);
-                          } else {
-                            selected.remove(e.key);
-                          }
-                        });
-                      },
-                    );
-                  }).toList(),
-                ),
-                if (selected.isEmpty) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "Selecione pelo menos 1 empresa.",
-                      style: TextStyle(
-                        color: Theme.of(ctx).colorScheme.error,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+      builder: (_) => AlertDialog(
+        title: const Text("Cadastrar entregador"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameC,
+              decoration: const InputDecoration(labelText: "Nome"),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Cancelar"),
+            const SizedBox(height: 10),
+            TextField(
+              controller: userC,
+              decoration: const InputDecoration(labelText: "Usuário"),
             ),
-            FilledButton(
-              onPressed: () {
-                if (nameC.text.trim().isEmpty ||
-                    userC.text.trim().isEmpty ||
-                    passC.text.trim().length < 6 ||
-                    selected.isEmpty) {
-                  setLocal(() {});
-                  return;
-                }
-                Navigator.pop(ctx, true);
-              },
-              child: const Text("Cadastrar"),
+            const SizedBox(height: 10),
+            TextField(
+              controller: passC,
+              decoration: const InputDecoration(labelText: "Senha (mín. 6)"),
+              obscureText: true,
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Criar"),
+          ),
+        ],
       ),
     );
 
@@ -163,22 +94,33 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         name: nameC.text.trim(),
         username: userC.text.trim(),
         password: passC.text.trim(),
-        companies: selected.toList(),
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Entregador cadastrado com sucesso!")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Entregador criado!")));
       await _load();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Erro ao criar (usuário pode já existir)."),
-          backgroundColor: Theme.of(context).colorScheme.error,
+        const SnackBar(
+          content: Text("Erro ao criar entregador (usuário pode já existir)."),
         ),
       );
+    }
+  }
+
+  String _formatCompanyName(String code) {
+    switch (code) {
+      case "jet":
+        return "JeT";
+      case "jadlog":
+        return "Jadlog";
+      case "mercado_livre":
+        return "Mercado Livre";
+      default:
+        return code;
     }
   }
 
@@ -203,153 +145,42 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  // HERO HEADER (Matching Courier Style)
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      gradient: LinearGradient(
-                        colors: [
-                          cs.tertiary.withOpacity(0.15),
-                          cs.primary.withOpacity(0.10),
-                          Colors.transparent,
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      border: Border.all(
-                        color: cs.outlineVariant.withOpacity(0.5),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: cs.surface,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.people_alt, color: cs.primary),
-                        ),
-                        const SizedBox(width: 16),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Gestão de Equipe",
-                              style: TextStyle(
-                                color: cs.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              "${_couriers.length} Entregadores",
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
+              child: _couriers.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 80),
+                        Center(child: Text("Nenhum entregador cadastrado.")),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Section Title + Action
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Lista de Entregadores",
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      TextButton.icon(
-                        onPressed: _createCourierDialog,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text("Novo"),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  if (_couriers.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Center(
-                        child: Text("Nenhum entregador cadastrado."),
-                      ),
                     )
-                  else
-                    ..._couriers.map((c) {
-                      final id = c["id"] as int;
-                      final name = (c["name"] ?? "") as String;
-                      final username = (c["username"] ?? "") as String;
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _couriers.length,
+                      itemBuilder: (_, i) {
+                        final c = _couriers[i];
+                        final id = c["id"] as int;
+                        final name = (c["name"] ?? "") as String;
+                        final username = (c["username"] ?? "") as String;
 
-                      return Card(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => CourierDeliveriesScreen(
-                                  courierId: id,
-                                  courierName: name,
-                                ),
-                              ),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 24,
-                                  backgroundColor: cs.primaryContainer,
-                                  foregroundColor: cs.onPrimaryContainer,
-                                  child: Text(
-                                    _initial(name),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                        return Card(
+                          child: ListTile(
+                            leading: CircleAvatar(child: Text(_initial(name))),
+                            title: Text(name),
+                            subtitle: Text("@$username"),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => CourierDeliveriesScreen(
+                                    courierId: id,
+                                    courierName: name,
                                   ),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      Text(
-                                        "@$username",
-                                        style: TextStyle(
-                                          color: cs.onSurfaceVariant,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Icon(Icons.chevron_right, color: cs.outline),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    }),
-                ],
-              ),
+                        );
+                      },
+                    ),
             ),
     );
   }

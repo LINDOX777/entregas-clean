@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../api/deliveries_api.dart';
-import '../app_config.dart';
+import '../config.dart';
 import '../models/delivery.dart';
 
 class CourierDeliveriesScreen extends StatefulWidget {
@@ -24,6 +24,8 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     with TickerProviderStateMixin {
   bool _loading = true;
   List<DeliveryItem> _items = [];
+  List<DeliveryItem> _allItems = [];
+  String? _selectedCompanyFilter;
   late final TabController _tabs;
 
   @override
@@ -43,12 +45,37 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     setState(() => _loading = true);
     try {
       final api = await DeliveriesApi.build();
-      final list = await api.listDeliveries(courierId: widget.courierId);
+      final list = await api.listDeliveries(
+        courierId: widget.courierId,
+        company: _selectedCompanyFilter,
+      );
       if (!mounted) return;
-      setState(() => _items = list);
+      setState(() {
+        _allItems = list;
+        _items = list;
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _formatCompanyName(String code) {
+    switch (code) {
+      case "jet":
+        return "JeT";
+      case "jadlog":
+        return "Jadlog";
+      case "mercado_livre":
+        return "Mercado Livre";
+      default:
+        return code;
+    }
+  }
+
+  List<String> _getAvailableCompanies() {
+    final companies = _allItems.map((e) => e.company).toSet().toList();
+    companies.sort();
+    return companies;
   }
 
   Color _statusColor(String s) {
@@ -65,53 +92,58 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
   String _statusText(String s) {
     switch (s) {
       case "approved":
-        return "APROVADA";
+        return "Aprovada";
       case "rejected":
-        return "REPROVADA";
+        return "Reprovada";
       default:
-        return "PENDENTE";
+        return "Pendente";
     }
   }
 
   List<DeliveryItem> _filteredByTab(int index) {
+    List<DeliveryItem> filtered = _items;
+    
+    // Filtro por status
     switch (index) {
       case 0:
-        return _items.where((e) => e.status == "pending").toList();
+        filtered = filtered.where((e) => e.status == "pending").toList();
+        break;
       case 1:
-        return _items.where((e) => e.status == "approved").toList();
+        filtered = filtered.where((e) => e.status == "approved").toList();
+        break;
       case 2:
-        return _items.where((e) => e.status == "rejected").toList();
+        filtered = filtered.where((e) => e.status == "rejected").toList();
+        break;
       default:
-        return _items;
+        break;
     }
+    
+    return filtered;
   }
 
   Future<void> _setStatus(DeliveryItem item, String status) async {
     final api = await DeliveriesApi.build();
-    String? notes;
 
+    String? notes;
     if (status == "rejected") {
       notes = await showDialog<String>(
         context: context,
         builder: (_) {
           final c = TextEditingController();
           return AlertDialog(
-            title: const Text("Motivo da Reprovação"),
+            title: const Text("Motivo da reprovação"),
             content: TextField(
               controller: c,
-              decoration: const InputDecoration(
-                hintText: "Ex: Foto ilegível",
-                prefixIcon: Icon(Icons.note_alt_outlined),
-              ),
+              decoration: const InputDecoration(hintText: "Ex: foto errada"),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, null),
                 child: const Text("Cancelar"),
               ),
-              FilledButton(
+              ElevatedButton(
                 onPressed: () => Navigator.pop(context, c.text.trim()),
-                child: const Text("Confirmar"),
+                child: const Text("Salvar"),
               ),
             ],
           );
@@ -130,24 +162,9 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Entregas de", style: TextStyle(fontSize: 14)),
-            Text(
-              widget.courierName,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+        title: Text(widget.courierName),
         bottom: TabBar(
           controller: _tabs,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          indicatorSize: TabBarIndicatorSize.label,
-          dividerColor: Colors.transparent,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          unselectedLabelColor: cs.onSurfaceVariant,
           tabs: const [
             Tab(text: "Pendentes"),
             Tab(text: "Aprovadas"),
@@ -156,6 +173,43 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
           ],
         ),
       ),
+      persistentFooterButtons: _getAvailableCompanies().isEmpty
+          ? null
+          : [
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: const Text("Todas"),
+                      selected: _selectedCompanyFilter == null,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedCompanyFilter = null;
+                        });
+                        _load();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    ..._getAvailableCompanies().map((company) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(_formatCompanyName(company)),
+                          selected: _selectedCompanyFilter == company,
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCompanyFilter = selected ? company : null;
+                            });
+                            _load();
+                          },
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
@@ -167,165 +221,104 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
                   onRefresh: _load,
                   child: list.isEmpty
                       ? ListView(
-                          children: [
-                            SizedBox(
-                              height: MediaQuery.of(context).size.height * 0.2,
-                            ),
-                            const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.inbox_outlined,
-                                    size: 48,
-                                    color: Colors.grey,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text("Nenhuma entrega nesta aba."),
-                                ],
-                              ),
-                            ),
+                          children: const [
+                            SizedBox(height: 80),
+                            Center(child: Text("Nada por aqui.")),
                           ],
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(12),
                           itemCount: list.length,
                           itemBuilder: (_, i) {
                             final d = list[i];
                             final color = _statusColor(d.status);
 
                             return Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          DateFormat(
-                                            "dd/MM/yyyy • HH:mm",
-                                          ).format(d.createdAt),
-                                          style: const TextStyle(
+                              child: ListTile(
+                                title: Text(
+                                  DateFormat(
+                                    "dd/MM/yyyy HH:mm",
+                                  ).format(d.createdAt),
+                                ),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      Chip(
+                                        label: Text(
+                                          _formatCompanyName(d.company),
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: color.withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                          border: Border.all(
+                                            color: color.withOpacity(0.5),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          _statusText(d.status),
+                                          style: TextStyle(
+                                            color: color,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
-                                        PopupMenuButton<String>(
-                                          icon: Icon(
-                                            Icons.more_horiz,
-                                            color: cs.outline,
-                                          ),
-                                          onSelected: (v) => _setStatus(d, v),
-                                          itemBuilder: (_) => [
-                                            const PopupMenuItem(
-                                              value: "approved",
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    Icons.check_circle,
-                                                    color: Colors.green,
-                                                  ),
-                                                  SizedBox(width: 8),
-                                                  Text("Aprovar"),
-                                                ],
-                                              ),
-                                            ),
-                                            const PopupMenuItem(
-                                              value: "rejected",
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    Icons.cancel,
-                                                    color: Colors.red,
-                                                  ),
-                                                  SizedBox(width: 8),
-                                                  Text("Reprovar"),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: color.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            border: Border.all(
-                                              color: color.withOpacity(0.5),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            _statusText(d.status),
-                                            style: TextStyle(
-                                              color: color,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        OutlinedButton.icon(
-                                          style: OutlinedButton.styleFrom(
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                            ),
-                                          ),
-                                          onPressed: () {
-                                            showDialog(
-                                              context: context,
-                                              builder: (_) => AlertDialog(
-                                                contentPadding: EdgeInsets.zero,
-                                                clipBehavior: Clip.antiAlias,
-                                                content: Image.network(
-                                                  "${AppConfig.baseUrl}${d.photoUrl}",
-                                                  fit: BoxFit.contain,
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(context),
-                                                    child: const Text("Fechar"),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          },
-                                          icon: const Icon(
-                                            Icons.photo,
-                                            size: 16,
-                                          ),
-                                          label: const Text("Ver Foto"),
-                                        ),
-                                      ],
-                                    ),
-                                    if (d.notes != null &&
-                                        d.notes!.isNotEmpty) ...[
-                                      const Divider(height: 24),
-                                      Text(
-                                        d.notes!,
-                                        style: TextStyle(
-                                          color: cs.error,
-                                          fontStyle: FontStyle.italic,
-                                          fontSize: 13,
-                                        ),
                                       ),
+                                      if (d.notes != null &&
+                                          d.notes!.isNotEmpty)
+                                        Text(
+                                          d.notes!,
+                                          style: TextStyle(
+                                            color: cs.onSurfaceVariant,
+                                          ),
+                                        ),
                                     ],
+                                  ),
+                                ),
+                                trailing: PopupMenuButton<String>(
+                                  onSelected: (v) => _setStatus(d, v),
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                      value: "approved",
+                                      child: Text("Aprovar"),
+                                    ),
+                                    PopupMenuItem(
+                                      value: "rejected",
+                                      child: Text("Reprovar"),
+                                    ),
                                   ],
                                 ),
+                                onTap: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      title: const Text("Foto da entrega"),
+                                      content: Image.network(
+                                        "${AppConfig.baseUrl}${d.photoUrl}",
+                                        fit: BoxFit.contain,
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: const Text("Fechar"),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
                               ),
                             );
                           },

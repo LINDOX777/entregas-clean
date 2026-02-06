@@ -1,47 +1,68 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from datetime import datetime
+from typing import Optional, List
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
-class TokenResponse(BaseModel):
+
+class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
-    user_id: int
     name: str
-    companies: List[str] = []
+    companies: List[str] = []  # empresas do entregador
 
-class MeResponse(BaseModel):
+
+class UserPublic(BaseModel):
     id: int
     name: str
     username: str
     role: str
     companies: List[str] = []
 
-class CourierCreate(BaseModel):
+    class Config:
+        from_attributes = True
+
+
+class CreateCourierRequest(BaseModel):
     name: str
     username: str
     password: str
-    companies: List[str]
+    companies: List[str] = []  # ["jet", "jadlog", "mercado_livre"]
 
-class CompaniesUpdate(BaseModel):
-    companies: List[str]
 
-class CourierOut(BaseModel):
+class DeliveryCreateResponse(BaseModel):
     id: int
-    name: str
-    username: str
-    companies: List[str]
-
-class DeliveryOut(BaseModel):
-    id: int
-    user_id: int
-    created_at: str
+    created_at: datetime
     photo_url: str
-    status: str
     company: str
+    status: str
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DeliveryItem(BaseModel):
+    id: int
+    created_at: datetime
+    photo_url: str
+    company: str
+    status: str
+    notes: Optional[str] = None
+    user: UserPublic
+
+    class Config:
+        from_attributes = True
+
 
 class ApproveRequest(BaseModel):
-    status: str  # "approved" | "rejected"
+    status: str  # "approved" ou "rejected"
+    notes: Optional[str] = None
+
+
+class UpdateCourierCompaniesRequest(BaseModel):
+    companies: List[str]  # ["jet", "jadlog", "mercado_livre"]

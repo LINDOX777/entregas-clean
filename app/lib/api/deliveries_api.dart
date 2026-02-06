@@ -19,6 +19,7 @@ class DeliveriesApi {
     String? fromDate,
     String? toDate,
     int? courierId,
+    String? company,
   }) async {
     final res = await _dio.get(
       "/deliveries",
@@ -26,6 +27,7 @@ class DeliveriesApi {
         if (fromDate != null) "from_date": fromDate,
         if (toDate != null) "to_date": toDate,
         if (courierId != null) "courier_id": courierId,
+        if (company != null) "company": company,
       },
     );
 
@@ -33,22 +35,24 @@ class DeliveriesApi {
     return data.map((e) => DeliveryItem.fromJson(e)).toList();
   }
 
-  Future<Map<String, dynamic>> statsFortnight({required String start}) async {
+  Future<Map<String, dynamic>> statsFortnight({
+    required String start,
+    String? company,
+  }) async {
     final res = await _dio.get(
       "/stats/fortnight",
-      queryParameters: {"start": start},
+      queryParameters: {
+        "start": start,
+        if (company != null) "company": company,
+      },
     );
     return Map<String, dynamic>.from(res.data);
   }
 
-  /// ✅ Upload alinhado com o Swagger:
-  /// POST /deliveries/upload
-  /// multipart/form-data: company (string) + file (binary)
-  ///
-  /// Funciona no Web (Chrome) e no Mobile (Android/iOS)
-  Future<void> uploadDelivery({
-    required String company, // ex: "jadlog", "jet", "ml"
+  /// ✅ Agora funciona no Web (Chrome) e no Mobile (Android/iOS)
+  Future<void> uploadDeliveryPhoto({
     required XFile file,
+    required String company,
   }) async {
     MultipartFile mf;
 
@@ -56,16 +60,14 @@ class DeliveriesApi {
       final bytes = await file.readAsBytes();
       mf = MultipartFile.fromBytes(bytes, filename: file.name);
     } else {
-      mf = await MultipartFile.fromFile(file.path, filename: file.name);
+      mf = await MultipartFile.fromFile(file.path);
     }
 
-    final formData = FormData.fromMap({"company": company, "file": mf});
-
-    await _dio.post(
-      "/deliveries/upload",
-      data: formData,
-      options: Options(contentType: "multipart/form-data"),
-    );
+    final formData = FormData.fromMap({
+      "photo": mf,
+      "company": company,
+    });
+    await _dio.post("/deliveries", data: formData);
   }
 
   Future<void> setStatus({

@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../api/deliveries_api.dart';
-import '../app_config.dart';
+import '../config.dart';
 import '../models/delivery.dart';
 import '../storage/token_storage.dart';
 import 'login_screen.dart';
@@ -18,10 +18,15 @@ class CourierHomeScreen extends StatefulWidget {
 
 class _CourierHomeScreenState extends State<CourierHomeScreen> {
   final _picker = ImagePicker();
+
   bool _loading = true;
   bool _uploading = false;
+
   List<DeliveryItem> _items = [];
+  List<DeliveryItem> _filteredItems = [];
   int _fortnightTotal = 0;
+  List<String> _myCompanies = [];
+  String? _selectedCompanyFilter; // null = todas
 
   @override
   void initState() {
@@ -33,18 +38,26 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
     setState(() => _loading = true);
 
     try {
+      final companies = await TokenStorage.getCompanies();
       final api = await DeliveriesApi.build();
-      final list = await api.listDeliveries();
+      final list = await api.listDeliveries(company: _selectedCompanyFilter);
       final total = await _loadFortnightTotal(api);
 
       if (!mounted) return;
       setState(() {
+        _myCompanies = companies;
         _items = list;
+        _filteredItems = _applyFilter(list);
         _fortnightTotal = total;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  List<DeliveryItem> _applyFilter(List<DeliveryItem> items) {
+    if (_selectedCompanyFilter == null) return items;
+    return items.where((d) => d.company == _selectedCompanyFilter).toList();
   }
 
   Future<int> _loadFortnightTotal(DeliveriesApi api) async {
@@ -53,7 +66,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
     final start = DateTime(now.year, now.month, startDay);
     final startStr = DateFormat("yyyy-MM-dd").format(start);
 
-    final res = await api.statsFortnight(start: startStr);
+    final res = await api.statsFortnight(start: startStr, company: _selectedCompanyFilter);
     return (res["total"] as int?) ?? 0;
   }
 
@@ -79,6 +92,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
     }
   }
 
+
   Future<void> _logout() async {
     await TokenStorage.clear();
     if (!mounted) return;
@@ -88,34 +102,111 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
     );
   }
 
-  Future<void> _sendPhoto() async {
+  Future<void> _startUploadFlow() async {
+    if (_myCompanies.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Erro: Nenhuma empresa vinculada ao seu perfil."),
+        ),
+      );
+      return;
+    }
+
+    String? selectedCompany;
+
+    // Se tiver só uma empresa, seleciona automático
+    if (_myCompanies.length == 1) {
+      selectedCompany = _myCompanies.first;
+    } else {
+      // Se tiver mais de uma, pede para escolher
+      selectedCompany = await _showCompanySelector();
+    }
+
+    if (selectedCompany == null) return; // Cancelou
+
+    // Abre a câmera/galeria
     final img = await _picker.pickImage(
-      source: ImageSource.gallery,
+      source: ImageSource.gallery, // ou Camera
       imageQuality: 75,
       maxWidth: 1280,
     );
-    if (img == null) return;
 
+    if (img == null) return; // Cancelou a foto
+
+    // Envia para o Backend
+    await _uploadPhoto(img, selectedCompany);
+  }
+
+  Future<String?> _showCompanySelector() async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text("Qual empresa?"),
+        children: _myCompanies.map((c) {
+          return SimpleDialogOption(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+            onPressed: () => Navigator.pop(ctx, c),
+            child: Row(
+              children: [
+                const Icon(Icons.business, color: Colors.grey),
+                const SizedBox(width: 12),
+                Text(
+                  _formatCompanyName(c),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  String _formatCompanyName(String code) {
+    switch (code) {
+      case "jet":
+        return "JeT";
+      case "jadlog":
+        return "Jadlog";
+      case "mercado_livre":
+        return "Mercado Livre";
+      default:
+        return code;
+    }
+  }
+
+  Future<void> _uploadPhoto(XFile file, String company) async {
     setState(() => _uploading = true);
 
     try {
       final api = await DeliveriesApi.build();
-      await api.uploadDeliveryPhoto(img);
+
+      // ✅ Enviando a foto da entrega
+      await api.uploadDeliveryPhoto(file: file, company: company);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Entrega enviada com sucesso!")),
+        const SnackBar(
+          content: Text("Entrega enviada com sucesso!"),
+        ),
       );
 
-      await _load();
+      await _load(); // Recarrega a lista
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       final data = e.response?.data;
-
       if (!mounted) return;
+
+      String msg = "Erro ao enviar.";
+      if (status == 403) msg = "Você não pode enviar para esta empresa.";
+      if (data != null && data['detail'] != null) msg = data['detail'];
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Erro ao enviar ($status): ${data ?? e.message}"),
+          content: Text(msg),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -150,7 +241,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
                 children: [
-                  // HERO Section
+                  // HERO Section (Igual ao seu anterior)
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -206,6 +297,46 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // Filtros por empresa
+                  if (_myCompanies.isNotEmpty) ...[
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          FilterChip(
+                            label: const Text("Todas"),
+                            selected: _selectedCompanyFilter == null,
+                            onSelected: (selected) {
+                              setState(() {
+                                _selectedCompanyFilter = null;
+                                _filteredItems = _applyFilter(_items);
+                              });
+                              _load();
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ..._myCompanies.map((company) {
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FilterChip(
+                                label: Text(_formatCompanyName(company)),
+                                selected: _selectedCompanyFilter == company,
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _selectedCompanyFilter = selected ? company : null;
+                                    _filteredItems = _applyFilter(_items);
+                                  });
+                                  _load();
+                                },
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
                   Text(
                     "Histórico Recente",
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -214,7 +345,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  if (_items.isEmpty)
+                  if (_filteredItems.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(32),
                       child: Center(
@@ -225,7 +356,7 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                       ),
                     ),
 
-                  ..._items.map((d) {
+                  ..._filteredItems.map((d) {
                     final color = _statusColor(d.status);
                     return Card(
                       child: InkWell(
@@ -279,14 +410,30 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      DateFormat(
-                                        "dd/MM/yyyy • HH:mm",
-                                      ).format(d.createdAt),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          DateFormat(
+                                            "dd/MM • HH:mm",
+                                          ).format(d.createdAt),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Empresa
+                                    Chip(
+                                      label: Text(
+                                        _formatCompanyName(d.company),
+                                        style: const TextStyle(fontSize: 11),
                                       ),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
                                     ),
                                     const SizedBox(height: 8),
                                     // Status Pill
@@ -363,7 +510,8 @@ class _CourierHomeScreenState extends State<CourierHomeScreen> {
             width: double.infinity,
             height: 56,
             child: FilledButton.icon(
-              onPressed: _uploading ? null : _sendPhoto,
+              // ✅ BOTÃO AGORA CHAMA O FLUXO NOVO
+              onPressed: _uploading ? null : _startUploadFlow,
               icon: _uploading
                   ? Container(
                       width: 24,

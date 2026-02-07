@@ -2,102 +2,104 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   static ThemeData light() {
-    final base = ThemeData(
-      useMaterial3: true,
-      colorSchemeSeed: Colors.deepPurple,
-      brightness: Brightness.light,
-    );
-
-    final cs = base.colorScheme;
-
-    return base.copyWith(
-      scaffoldBackgroundColor: const Color(0xFFF7F7FB),
-      appBarTheme: AppBarTheme(
-        backgroundColor: cs.surface,
-        surfaceTintColor: cs.surface,
-        elevation: 0,
-        titleTextStyle: TextStyle(
-          color: cs.onSurface,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 0,
-        color: cs.surface,
-        surfaceTintColor: cs.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.symmetric(vertical: 6),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: cs.surface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.primary, width: 1.5),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-      ),
-    );
+    return _buildTheme(Brightness.light);
   }
 
   static ThemeData dark() {
+    return _buildTheme(Brightness.dark);
+  }
+
+  static ThemeData _buildTheme(Brightness brightness) {
     final base = ThemeData(
       useMaterial3: true,
       colorSchemeSeed: Colors.deepPurple,
-      brightness: Brightness.dark,
+      brightness: brightness,
+      visualDensity: VisualDensity.adaptivePlatformDensity,
     );
 
     final cs = base.colorScheme;
 
     return base.copyWith(
-      scaffoldBackgroundColor: const Color(0xFF0E0E12),
+      scaffoldBackgroundColor: brightness == Brightness.light
+          ? const Color(0xFFF9FAFC)
+          : const Color(0xFF0E0E12),
+
+      // Minimalist AppBar
       appBarTheme: AppBarTheme(
-        backgroundColor: cs.surface,
-        surfaceTintColor: cs.surface,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
+        centerTitle: false,
         titleTextStyle: TextStyle(
           color: cs.onSurface,
-          fontSize: 18,
+          fontSize: 20,
           fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
         ),
+        iconTheme: IconThemeData(color: cs.onSurface),
       ),
+
+      // Flat Design: No Shadow, Subtle Border
       cardTheme: CardThemeData(
         elevation: 0,
-        color: cs.surface,
-        surfaceTintColor: cs.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.symmetric(vertical: 6),
+        color: cs.surfaceContainerLow,
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: cs.outlineVariant.withOpacity(0.4), width: 1),
+        ),
       ),
+
+      // Consistent Inputs
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: cs.surface,
+        fillColor: cs.surfaceContainerLowest,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.outlineVariant),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.outlineVariant),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: cs.primary, width: 1.5),
         ),
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
+          horizontal: 16,
+          vertical: 16,
+        ),
+        labelStyle: TextStyle(color: cs.onSurfaceVariant),
+      ),
+
+      // Modern Buttons
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+
+      // Custom Floating SnackBar
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: cs.inverseSurface,
+        contentTextStyle: TextStyle(color: cs.onInverseSurface),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+
+      // ✅ FIX: DialogThemeData (não DialogTheme)
+      dialogTheme: DialogThemeData(
+        backgroundColor: cs.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titleTextStyle: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: cs.onSurface,
         ),
       ),
     );

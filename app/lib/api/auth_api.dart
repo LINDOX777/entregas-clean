@@ -1,10 +1,10 @@
-import '../storage/token_storage.dart';
+import 'package:dio/dio.dart';
 import 'api_client.dart';
 
 class AuthApi {
-  final ApiClient _client;
+  final Dio _dio;
 
-  AuthApi(this._client);
+  AuthApi(this._dio);
 
   static Future<AuthApi> build() async {
     final client = await ApiClient.create();
@@ -12,58 +12,27 @@ class AuthApi {
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final res = await _client.dio.post(
-      '/auth/login',
-      data: {'username': username, 'password': password},
+    final res = await _dio.post(
+      "/auth/login",
+      data: {"username": username, "password": password},
     );
-
-    final data = (res.data as Map).cast<String, dynamic>();
-
-    final token = data['access_token'] as String;
-    final role = (data['role'] as String?) ?? '';
-    final name = (data['name'] as String?) ?? '';
-    final companies = List<String>.from(data['companies'] ?? []);
-
-    await TokenStorage.saveToken(token);
-    await TokenStorage.saveRole(role);
-    if (name.isNotEmpty) {
-      await TokenStorage.saveName(name);
-    }
-    await TokenStorage.saveCompanies(companies);
-
-    return data;
+    return Map<String, dynamic>.from(res.data);
   }
 
+  // ✅ backend novo
   Future<List<Map<String, dynamic>>> listCouriers() async {
-    final res = await _client.dio.get('/users/couriers');
-    final data = List<Map<String, dynamic>>.from(res.data);
-    return data;
+    final res = await _dio.get("/users/couriers");
+    return List<Map<String, dynamic>>.from(res.data);
   }
 
-  Future<void> createCourier({
+  Future<Map<String, dynamic>> createCourier({
     required String name,
     required String username,
     required String password,
-    required List<String> companies,
   }) async {
-    await _client.dio.post(
-      '/users/couriers',
-      data: {
-        'name': name,
-        'username': username,
-        'password': password,
-        'companies': companies,
-      },
-    );
-  }
-
-  Future<void> updateCourierCompanies({
-    required int courierId,
-    required List<String> companies,
-  }) async {
-    await _client.dio.patch(
-      '/users/couriers/$courierId/companies',
-      data: {'companies': companies},
+    final res = await _dio.post(
+      "/users/couriers",
+      data: {"name": name, "username": username, "password": password},
     );
   }
 }

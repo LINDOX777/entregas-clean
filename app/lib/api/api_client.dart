@@ -10,8 +10,8 @@ class ApiClient {
   static Future<ApiClient> create() async {
     final dio = Dio(
       BaseOptions(
-        baseUrl: Config.baseUrl,
-        connectTimeout: const Duration(seconds: 10),
+        baseUrl: AppConfig.baseUrl,
+        connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 20),
       ),
     );
@@ -21,9 +21,9 @@ class ApiClient {
         onRequest: (options, handler) async {
           final token = await TokenStorage.getToken();
           if (token != null && token.isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer $token';
+            options.headers["Authorization"] = "Bearer $token";
           }
-          handler.next(options);
+          return handler.next(options);
         },
       ),
     );

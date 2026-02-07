@@ -1,48 +1,38 @@
-from database import engine, SessionLocal
-from models import Base, User
+from sqlalchemy.orm import Session
+from db import SessionLocal, engine, Base
+from models import User
 from auth import hash_password
 
+Base.metadata.create_all(bind=engine)
+
 def run():
-    # garante tabelas
-    Base.metadata.create_all(bind=engine)
+    db: Session = SessionLocal()
 
-    db = SessionLocal()
-
-    # evita duplicar seed
-    existing = db.query(User).filter(User.username == "admin").first()
-    if existing:
-        print("Seed já rodado (admin já existe).")
-        db.close()
+    # evita duplicar
+    if db.query(User).count() > 0:
+        print("Já tem usuários no banco. Seed ignorado.")
         return
 
     admin = User(
         name="Admin",
         username="admin",
-        role="admin",
         password_hash=hash_password("admin123"),
+        role="admin",
     )
 
-    courier1 = User(
-        name="João",
-        username="joao",
+    courier = User(
+        name="Entregador 1",
+        username="entregador",
+        password_hash=hash_password("123456"),
         role="courier",
-        password_hash=hash_password("123"),
     )
-    courier1.set_companies(["JET", "JADLOG"])
 
-    courier2 = User(
-        name="Maria",
-        username="maria",
-        role="courier",
-        password_hash=hash_password("123"),
-    )
-    courier2.set_companies(["MERCADO_LIVRE"])
-
-    db.add_all([admin, courier1, courier2])
+    db.add(admin)
+    db.add(courier)
     db.commit()
     db.close()
 
-    print("Seed OK: admin/admin123, joao/123, maria/123")
+    print("Seed OK. Login admin/admin123 e entregador/123456")
 
 if __name__ == "__main__":
     run()

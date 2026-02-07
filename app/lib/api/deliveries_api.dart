@@ -63,10 +63,7 @@ class DeliveriesApi {
       mf = await MultipartFile.fromFile(file.path);
     }
 
-    final formData = FormData.fromMap({
-      "photo": mf,
-      "company": company,
-    });
+    final formData = FormData.fromMap({"photo": mf, "company": company});
     await _dio.post("/deliveries", data: formData);
   }
 
@@ -79,5 +76,10 @@ class DeliveriesApi {
       "/deliveries/$deliveryId/status",
       data: {"status": status, "notes": notes},
     );
+  }
+
+  Future<Map<String, dynamic>> getAdminStats() async {
+    final response = await _dio.get('/admin/stats');
+    return response.data as Map<String, dynamic>;
   }
 }

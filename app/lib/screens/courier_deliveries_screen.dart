@@ -23,7 +23,7 @@ class CourierDeliveriesScreen extends StatefulWidget {
 class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     with TickerProviderStateMixin {
   bool _loading = true;
-  List<DeliveryItem> _items = [];
+  // _allItems guarda a lista completa vinda da API
   List<DeliveryItem> _allItems = [];
   String? _selectedCompanyFilter;
   late final TabController _tabs;
@@ -32,6 +32,10 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 4, vsync: this);
+    // Adicionei um listener para garantir que a tela atualize ao trocar de aba
+    _tabs.addListener(() {
+      if (_tabs.indexIsChanging) setState(() {});
+    });
     _load();
   }
 
@@ -45,14 +49,12 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     setState(() => _loading = true);
     try {
       final api = await DeliveriesApi.build();
-      final list = await api.listDeliveries(
-        courierId: widget.courierId,
-        company: _selectedCompanyFilter,
-      );
+      // CARREGA TUDO: Removemos o filtro de company aqui para carregar todas
+      // as entregas e permitir a filtragem rápida localmente (client-side).
+      final list = await api.listDeliveries(courierId: widget.courierId);
       if (!mounted) return;
       setState(() {
         _allItems = list;
-        _items = list;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -72,6 +74,7 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     }
   }
 
+  // Gera a lista de empresas baseada no que veio da API
   List<String> _getAvailableCompanies() {
     final companies = _allItems.map((e) => e.company).toSet().toList();
     companies.sort();
@@ -100,24 +103,34 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
     }
   }
 
+  // LÓGICA PRINCIPAL DE FILTRAGEM
   List<DeliveryItem> _filteredByTab(int index) {
-    List<DeliveryItem> filtered = _items;
-    
-    // Filtro por status
+    // 1. Começa com a lista completa
+    List<DeliveryItem> filtered = List.from(_allItems);
+
+    // 2. Aplica o filtro de Empresa (se houver alguma selecionada)
+    if (_selectedCompanyFilter != null) {
+      filtered = filtered
+          .where((e) => e.company == _selectedCompanyFilter)
+          .toList();
+    }
+
+    // 3. Aplica o filtro de Status (baseado na aba)
     switch (index) {
-      case 0:
+      case 0: // Pendentes
         filtered = filtered.where((e) => e.status == "pending").toList();
         break;
-      case 1:
+      case 1: // Aprovadas
         filtered = filtered.where((e) => e.status == "approved").toList();
         break;
-      case 2:
+      case 2: // Reprovadas
         filtered = filtered.where((e) => e.status == "rejected").toList();
         break;
+      // case 3 é "Todas", então não filtramos status
       default:
         break;
     }
-    
+
     return filtered;
   }
 
@@ -160,11 +173,18 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
+    // Calculamos a lista a ser exibida com base na aba atual
+    final currentList = _loading
+        ? <DeliveryItem>[]
+        : _filteredByTab(_tabs.index);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.courierName),
         bottom: TabBar(
           controller: _tabs,
+          // onTap força o setState para atualizar a lista ao clicar na aba
+          onTap: (v) => setState(() {}),
           tabs: const [
             Tab(text: "Pendentes"),
             Tab(text: "Aprovadas"),
@@ -173,6 +193,7 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
           ],
         ),
       ),
+      // Botões de filtro no rodapé
       persistentFooterButtons: _getAvailableCompanies().isEmpty
           ? null
           : [
@@ -187,7 +208,7 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
                         setState(() {
                           _selectedCompanyFilter = null;
                         });
-                        _load();
+                        // Não chamamos _load() aqui, pois a filtragem é local
                       },
                     ),
                     const SizedBox(width: 8),
@@ -199,9 +220,11 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
                           selected: _selectedCompanyFilter == company,
                           onSelected: (selected) {
                             setState(() {
-                              _selectedCompanyFilter = selected ? company : null;
+                              _selectedCompanyFilter = selected
+                                  ? company
+                                  : null;
                             });
-                            _load();
+                            // Não chamamos _load() aqui, pois a filtragem é local
                           },
                         ),
                       );
@@ -212,119 +235,112 @@ class _CourierDeliveriesScreenState extends State<CourierDeliveriesScreen>
             ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabs,
-              children: List.generate(4, (tabIndex) {
-                final list = _filteredByTab(tabIndex);
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: currentList.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 80),
+                        Center(
+                          child: Text(
+                            "Nenhuma entrega encontrada com estes filtros.",
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: currentList.length,
+                      itemBuilder: (_, i) {
+                        final d = currentList[i];
+                        final color = _statusColor(d.status);
 
-                return RefreshIndicator(
-                  onRefresh: _load,
-                  child: list.isEmpty
-                      ? ListView(
-                          children: const [
-                            SizedBox(height: 80),
-                            Center(child: Text("Nada por aqui.")),
-                          ],
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(12),
-                          itemCount: list.length,
-                          itemBuilder: (_, i) {
-                            final d = list[i];
-                            final color = _statusColor(d.status);
-
-                            return Card(
-                              child: ListTile(
-                                title: Text(
-                                  DateFormat(
-                                    "dd/MM/yyyy HH:mm",
-                                  ).format(d.createdAt),
-                                ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      Chip(
-                                        label: Text(
-                                          _formatCompanyName(d.company),
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                        padding: EdgeInsets.zero,
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: color.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                          border: Border.all(
-                                            color: color.withOpacity(0.5),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          _statusText(d.status),
-                                          style: TextStyle(
-                                            color: color,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                      if (d.notes != null &&
-                                          d.notes!.isNotEmpty)
-                                        Text(
-                                          d.notes!,
-                                          style: TextStyle(
-                                            color: cs.onSurfaceVariant,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                trailing: PopupMenuButton<String>(
-                                  onSelected: (v) => _setStatus(d, v),
-                                  itemBuilder: (_) => const [
-                                    PopupMenuItem(
-                                      value: "approved",
-                                      child: Text("Aprovar"),
+                        return Card(
+                          child: ListTile(
+                            title: Text(
+                              DateFormat(
+                                "dd/MM/yyyy HH:mm",
+                              ).format(d.createdAt),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  Chip(
+                                    label: Text(
+                                      _formatCompanyName(d.company),
+                                      style: const TextStyle(fontSize: 11),
                                     ),
-                                    PopupMenuItem(
-                                      value: "rejected",
-                                      child: Text("Reprovar"),
+                                    padding: EdgeInsets.zero,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: color.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(
+                                        color: color.withOpacity(0.5),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _statusText(d.status),
+                                      style: TextStyle(
+                                        color: color,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  if (d.notes != null && d.notes!.isNotEmpty)
+                                    Text(
+                                      d.notes!,
+                                      style: TextStyle(
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (v) => _setStatus(d, v),
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: "approved",
+                                  child: Text("Aprovar"),
+                                ),
+                                PopupMenuItem(
+                                  value: "rejected",
+                                  child: Text("Reprovar"),
+                                ),
+                              ],
+                            ),
+                            onTap: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  title: const Text("Foto da entrega"),
+                                  content: Image.network(
+                                    "${AppConfig.baseUrl}${d.photoUrl}",
+                                    fit: BoxFit.contain,
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text("Fechar"),
                                     ),
                                   ],
                                 ),
-                                onTap: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      title: const Text("Foto da entrega"),
-                                      content: Image.network(
-                                        "${AppConfig.baseUrl}${d.photoUrl}",
-                                        fit: BoxFit.contain,
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text("Fechar"),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                );
-              }),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
             ),
     );
   }

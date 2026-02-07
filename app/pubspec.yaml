@@ -36,6 +36,8 @@ dependencies:
   image_picker: ^1.0.7
   intl: ^0.19.0
   shared_preferences: ^2.5.4
+  showcaseview: ^3.0.0
+  audioplayers: ^6.0.0
 
 
 dev_dependencies:
@@ -59,6 +61,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/sounds/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

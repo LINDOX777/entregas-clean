@@ -4,7 +4,9 @@ class TokenStorage {
   static const _tokenKey = 'access_token';
   static const _roleKey = 'role';
   static const _nameKey = 'name';
-  static const _companiesKey = 'companies'; // <--- Nova chave
+  static const _companiesKey = 'companies';
+
+  // --- GETTERS E SETTERS INDIVIDUAIS ---
 
   static Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
@@ -36,19 +38,8 @@ class TokenStorage {
     return prefs.getString(_nameKey);
   }
 
-  static Future<void> saveSession({
-    required String token,
-    required String role,
-    String? name,
-  }) async {
-    await saveToken(token);
-    await saveRole(role);
-    if (name != null) {
-      await saveName(name);
-    }
-  }
+  // --- EMPRESAS ---
 
-  // --- NOVOS MÉTODOS PARA EMPRESAS ---
   static Future<void> saveCompanies(List<String> companies) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_companiesKey, companies);
@@ -56,16 +47,50 @@ class TokenStorage {
 
   static Future<List<String>> getCompanies() async {
     final prefs = await SharedPreferences.getInstance();
-    // Retorna lista vazia se não achar nada
     return prefs.getStringList(_companiesKey) ?? [];
   }
-  // -----------------------------------
+
+  // --- SESSÃO COMPLETA (LOGIN) ---
+
+  static Future<void> saveSession({
+    required String token,
+    required String role,
+    String? name,
+    List<String>? companies,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Salva tudo usando a mesma instância (mais rápido)
+    await prefs.setString(_tokenKey, token);
+    await prefs.setString(_roleKey, role);
+
+    if (name != null) {
+      await prefs.setString(_nameKey, name);
+    }
+
+    if (companies != null) {
+      await prefs.setStringList(_companiesKey, companies);
+    }
+  }
+
+  // --- LIMPEZA (LOGOUT) ---
 
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_roleKey);
-    await prefs.remove(_nameKey);
-    await prefs.remove(_companiesKey); // <--- Limpar também
+    await prefs.clear();
+  }
+
+  // --- TUTORIAL / ONBOARDING ---
+
+  static const _onboardingKey = 'onboarding_seen';
+
+  static Future<bool> hasSeenOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_onboardingKey) ?? false;
+  }
+
+  static Future<void> setOnboardingSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingKey, true);
   }
 }

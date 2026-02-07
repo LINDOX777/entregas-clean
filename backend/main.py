@@ -5,6 +5,7 @@ from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from db import engine, Base, get_db
@@ -280,3 +281,50 @@ def stats_fortnight(
         by_day[key] = by_day.get(key, 0) + 1
 
     return {"start": start, "end": end_dt.strftime("%Y-%m-%d"), "total": total, "by_day": by_day}
+
+@app.get("/admin/stats")
+def admin_stats(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    # 1. Total de Entregadores
+    total_couriers = db.query(User).filter(User.role == "courier").count()
+
+    # 2. Entregas Pendentes (Geral)
+    total_pending = db.query(Delivery).filter(Delivery.status == "pending").count()
+
+    # 3. Entregas Hoje (Geral)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    total_today = db.query(Delivery).filter(Delivery.created_at >= today_start).count()
+
+    # 4. Gráfico: Últimos 7 dias
+    # Vamos gerar os dados agrupados por dia
+    seven_days_ago = today_start - timedelta(days=6)
+    
+    # Query agrupada por data
+    # SQLite/Postgres tem sintaxes diferentes para data, mas vamos fazer python-side para compatibilidade simples
+    # (Se tiver muitos dados, fazer group_by no SQL é melhor, mas para < 10k registros isso é instantâneo)
+    recent_deliveries = db.query(Delivery.created_at).filter(Delivery.created_at >= seven_days_ago).all()
+
+    # Inicializa o mapa com 0 para os últimos 7 dias
+    stats_map = {}
+    for i in range(7):
+        d = seven_days_ago + timedelta(days=i)
+        key = d.strftime("%Y-%m-%d")
+        stats_map[key] = 0
+
+    # Preenche com os dados reais
+    for d in recent_deliveries:
+        key = d.created_at.strftime("%Y-%m-%d")
+        if key in stats_map:
+            stats_map[key] += 1
+
+    # Formata para lista ordenada
+    chart_data = [{"date": k, "count": v} for k, v in stats_map.items()]
+
+    return {
+        "total_couriers": total_couriers,
+        "total_pending": total_pending,
+        "total_today": total_today,
+        "weekly_chart": chart_data
+    }

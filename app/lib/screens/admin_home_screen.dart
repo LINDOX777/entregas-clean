@@ -1,8 +1,10 @@
+import 'package:dio/dio.dart'; // <--- Necessário para tratar o erro 401
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
-import '../api/auth_api.dart';
+import '../api/deliveries_api.dart';
 import '../storage/token_storage.dart';
-import 'courier_deliveries_screen.dart';
+import 'admin_couriers_screen.dart';
 import 'login_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
@@ -14,21 +16,85 @@ class AdminHomeScreen extends StatefulWidget {
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   bool _loading = true;
-  List<Map<String, dynamic>> _couriers = [];
+
+  // Estatísticas Reais
+  int _totalCouriers = 0;
+  int _deliveriesToday = 0;
+  int _pendingApprovals = 0;
+
+  // Dados do gráfico
+  List<Map<String, dynamic>> _weeklyStats = [];
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadDashboardData();
   }
 
-  Future<void> _load() async {
+  Future<void> _loadDashboardData() async {
     setState(() => _loading = true);
     try {
-      final api = await AuthApi.build();
-      final list = await api.listCouriers();
+      final delivApi = await DeliveriesApi.build();
+
+      // ✅ CHAMA A NOVA ROTA DO BACKEND
+      final stats = await delivApi.getAdminStats();
+
+      // Processa o gráfico vindo do backend
+      final chartData = List<Map<String, dynamic>>.from(stats['weekly_chart']);
+
+      // Formata os dados para o Widget
+      final formattedChart = chartData.map((d) {
+        final date = DateTime.parse(d['date']);
+        final isToday = DateTime.now().day == date.day;
+        return {
+          "label": DateFormat(
+            'E',
+            'pt_BR',
+          ).format(date)[0].toUpperCase(), // S, T, Q...
+          "value": d['count'],
+          "isToday": isToday,
+        };
+      }).toList();
+
       if (!mounted) return;
-      setState(() => _couriers = list);
+      setState(() {
+        _totalCouriers = stats['total_couriers'];
+        _pendingApprovals = stats['total_pending'];
+        _deliveriesToday = stats['total_today'];
+        _weeklyStats = formattedChart;
+      });
+    } on DioException catch (e) {
+      // --- TRATAMENTO DE SESSÃO EXPIRADA (401) ---
+      if (e.response?.statusCode == 401) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Sessão expirada. Faça login novamente."),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          _logout(); // Força a saída para limpar o token antigo
+        }
+        return;
+      }
+
+      // Outros erros de conexão
+      debugPrint("Erro Dio: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Erro de conexão ao carregar dados."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Erro genérico: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Erro inesperado: $e")));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -43,277 +109,330 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  Future<void> _createCourierDialog() async {
-    final nameC = TextEditingController();
-    final userC = TextEditingController();
-    final passC = TextEditingController();
-    final selectedCompanies = <String>[];
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text("Cadastrar entregador"),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameC,
-                  decoration: const InputDecoration(labelText: "Nome"),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: userC,
-                  decoration: const InputDecoration(labelText: "Usuário"),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: passC,
-                  decoration: const InputDecoration(labelText: "Senha (mín. 6)"),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 16),
-                const Text("Empresas:", style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...["jet", "jadlog", "mercado_livre"].map((company) {
-                  return CheckboxListTile(
-                    title: Text(_formatCompanyName(company)),
-                    value: selectedCompanies.contains(company),
-                    onChanged: (checked) {
-                      setState(() {
-                        if (checked == true) {
-                          selectedCompanies.add(company);
-                        } else {
-                          selectedCompanies.remove(company);
-                        }
-                      });
-                    },
-                    contentPadding: EdgeInsets.zero,
-                  );
-                }),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancelar"),
-            ),
-            ElevatedButton(
-              onPressed: selectedCompanies.isEmpty
-                  ? null
-                  : () => Navigator.pop(context, true),
-              child: const Text("Criar"),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true) return;
-
-    try {
-      final api = await AuthApi.build();
-      await api.createCourier(
-        name: nameC.text.trim(),
-        username: userC.text.trim(),
-        password: passC.text.trim(),
-        companies: selectedCompanies,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Entregador criado!")),
-      );
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erro: ${e.toString()}"),
-        ),
-      );
-    }
-  }
-
-  Future<void> _editCompaniesDialog(int courierId, List<String> currentCompanies) async {
-    final selectedCompanies = List<String>.from(currentCompanies);
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text("Editar empresas"),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("Selecione as empresas:", style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...["jet", "jadlog", "mercado_livre"].map((company) {
-                  return CheckboxListTile(
-                    title: Text(_formatCompanyName(company)),
-                    value: selectedCompanies.contains(company),
-                    onChanged: (checked) {
-                      setState(() {
-                        if (checked == true) {
-                          selectedCompanies.add(company);
-                        } else {
-                          selectedCompanies.remove(company);
-                        }
-                      });
-                    },
-                    contentPadding: EdgeInsets.zero,
-                  );
-                }),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancelar"),
-            ),
-            ElevatedButton(
-              onPressed: selectedCompanies.isEmpty
-                  ? null
-                  : () => Navigator.pop(context, true),
-              child: const Text("Salvar"),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true) return;
-
-    try {
-      final api = await AuthApi.build();
-      await api.updateCourierCompanies(
-        courierId: courierId,
-        companies: selectedCompanies,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Empresas atualizadas!")),
-      );
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erro: ${e.toString()}"),
-        ),
-      );
-    }
-  }
-
-  String _formatCompanyName(String code) {
-    switch (code) {
-      case "jet":
-        return "JeT";
-      case "jadlog":
-        return "Jadlog";
-      case "mercado_livre":
-        return "Mercado Livre";
-      default:
-        return code;
-    }
-  }
-
-  String _initial(String name) {
-    final n = name.trim();
-    if (n.isEmpty) return "?";
-    return n[0].toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
+      backgroundColor: cs.surface,
       appBar: AppBar(
-        title: const Text("Entregadores"),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Painel de Controle",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+            Text(
+              "Visão geral do sistema",
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            onPressed: _createCourierDialog,
-            tooltip: "Cadastrar entregador",
-            icon: const Icon(Icons.person_add_alt_1),
+            onPressed: _loadDashboardData,
+            icon: const Icon(Icons.refresh),
+            tooltip: "Atualizar dados",
           ),
-          IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
+          IconButton(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout, color: Colors.red),
+            tooltip: "Sair",
+          ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _load,
-              child: _couriers.isEmpty
-                  ? ListView(
-                      children: const [
-                        SizedBox(height: 80),
-                        Center(child: Text("Nenhum entregador cadastrado.")),
-                      ],
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _couriers.length,
-                      itemBuilder: (_, i) {
-                        final c = _couriers[i];
-                        final id = c["id"] as int;
-                        final name = (c["name"] ?? "") as String;
-                        final username = (c["username"] ?? "") as String;
-                        final companies = List<String>.from(c["companies"] ?? []);
-
-                        return Card(
-                          child: ListTile(
-                            leading: CircleAvatar(child: Text(_initial(name))),
-                            title: Text(name),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("@$username"),
-                                const SizedBox(height: 4),
-                                Wrap(
-                                  spacing: 4,
-                                  children: companies.map((c) {
-                                    return Chip(
-                                      label: Text(
-                                        _formatCompanyName(c),
-                                        style: const TextStyle(fontSize: 10),
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      visualDensity: VisualDensity.compact,
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit, size: 20),
-                                  onPressed: () => _editCompaniesDialog(id, companies),
-                                  tooltip: "Editar empresas",
-                                ),
-                                const Icon(Icons.chevron_right),
-                              ],
-                            ),
+              onRefresh: _loadDashboardData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // --- SEÇÃO 1: CARDS DE DESTAQUE ---
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: "Entregadores",
+                            value: "$_totalCouriers",
+                            icon: Icons.people_alt,
+                            color: Colors.blue,
                             onTap: () {
-                              Navigator.of(context).push(
+                              Navigator.push(
+                                context,
                                 MaterialPageRoute(
-                                  builder: (_) => CourierDeliveriesScreen(
-                                    courierId: id,
-                                    courierName: name,
+                                  builder: (_) => const AdminCouriersScreen(),
+                                ),
+                              ).then((_) => _loadDashboardData());
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: "Pendentes",
+                            value: "$_pendingApprovals",
+                            icon: Icons.pending_actions,
+                            color: _pendingApprovals > 0
+                                ? Colors.orange
+                                : Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Card extra para "Entregas Hoje"
+                    _StatCard(
+                      title: "Entregas Hoje",
+                      value: "$_deliveriesToday",
+                      icon: Icons.today,
+                      color: Colors.purple,
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // --- SEÇÃO 2: GRÁFICO ---
+                    Text(
+                      "Movimento da Semana",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      height: 180,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: cs.outlineVariant.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: _weeklyStats.map((stat) {
+                          final heightFactor = (stat['value'] as int) / 20.0;
+                          final isToday = stat['isToday'] as bool;
+
+                          return Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              if (isToday)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  margin: const EdgeInsets.only(bottom: 4),
+                                  decoration: BoxDecoration(
+                                    color: cs.primary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    "Hoje",
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                 ),
-                              );
-                            },
+                              TweenAnimationBuilder<double>(
+                                duration: const Duration(seconds: 1),
+                                tween: Tween(begin: 0, end: heightFactor),
+                                builder: (ctx, val, _) {
+                                  return Container(
+                                    width: 16,
+                                    // Limita altura máxima visualmente para não estourar
+                                    height: (100 * val).clamp(0, 100),
+                                    decoration: BoxDecoration(
+                                      color: isToday
+                                          ? cs.primary
+                                          : cs.primary.withOpacity(0.3),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                stat['label'],
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          );
+                        }).toList(),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // --- SEÇÃO 3: MENU ---
+                    Text(
+                      "Gerenciamento",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    _ActionTile(
+                      title: "Gerenciar Entregadores",
+                      subtitle: "Cadastrar, editar ou visualizar rotas",
+                      icon: Icons.motorcycle,
+                      color: cs.primary,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdminCouriersScreen(),
+                          ),
+                        ).then((_) => _loadDashboardData());
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _ActionTile(
+                      title: "Relatórios Financeiros",
+                      subtitle: "Exportar dados para Excel (Em breve)",
+                      icon: Icons.table_chart,
+                      color: Colors.green,
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Funcionalidade em breve!"),
                           ),
                         );
                       },
                     ),
+                  ],
+                ),
+              ),
             ),
+    );
+  }
+}
+
+// --- WIDGETS AUXILIARES ---
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _StatCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: color.withOpacity(0.1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: color.withOpacity(0.2)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: color.withOpacity(0.8),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.grey,
+        ),
+        onTap: onTap,
+      ),
     );
   }
 }
